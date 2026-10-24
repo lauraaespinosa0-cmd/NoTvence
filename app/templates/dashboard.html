@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- ENCABEZADO DEL DASHBOARD -->
+<div class="page-header d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+    <div>
+        <h1>Dashboard</h1>
+        <p>Resumen general del inventario, productos próximos a vencer y movimientos recientes.</p>
+    </div>
+    <!-- Botón para ir a registrar un nuevo producto -->
+    <a class="btn btn-primary" href="/producto/nuevo">Registrar producto</a>
+</div>
+
+<!-- TARJETAS DE MÉTRICAS PRINCIPALES -->
+<!-- Estas tarjetas muestran números que se animan con animateCounters() -->
+<div class="row g-4">
+    <!-- Total de productos registrados -->
+    <div class="col-md-6 col-xl-3">
+        <a class="metric-card" href="/inventario">
+            <span>Productos registrados</span>
+            <!-- data-counter activa la animación de números -->
+            <strong data-counter="{{ products_count }}">0</strong>
+            <small>{{ categories_count }} categorías activas</small>
+        </a>
+    </div>
+
+    <!-- Total de unidades en inventario -->
+    <div class="col-md-6 col-xl-3">
+        <a class="metric-card" href="/inventario">
+            <span>Unidades disponibles</span>
+            <strong data-counter="{{ units_count }}">0</strong>
+            <small>Total en inventario</small>
+        </a>
+    </div>
+
+    <!-- Alertas activas (productos con problemas) -->
+    <div class="col-md-6 col-xl-3">
+        <a class="metric-card warning" href="/alertas">
+            <span>Alertas activas</span>
+            <strong data-counter="{{ alerts_count }}">0</strong>
+            <small>Por vencer, vencidos o stock bajo</small>
+        </a>
+    </div>
+
+    <!-- Movimientos recientes -->
+    <div class="col-md-6 col-xl-3">
+        <a class="metric-card success" href="/movimientos">
+            <span>Movimientos recientes</span>
+            <strong data-counter="{{ movements_count }}">0</strong>
+            <small>Entradas, consumos y descartes</small>
+        </a>
+    </div>
+</div>
+
+<!-- SECCIÓN DE ACTIVIDAD RECIENTE Y VENCIMIENTOS -->
+<div class="row g-4 mt-1">
+    <!-- TABLA DE ACTIVIDAD RECIENTE (3 últimos productos) -->
+    <div class="col-xl-7">
+        <section class="panel">
+            <div class="section-title">
+                <h2>Actividad reciente</h2>
+                <a href="/inventario">Ver inventario</a>
+            </div>
+            <div class="table-responsive">
+                <table class="table align-middle">
+                    <thead>
+                    <tr>
+                        <th>Evento</th>
+                        <th>Producto</th>
+                        <th>Estado</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <!-- Mostrar los 3 últimos productos registrados -->
+                    {% for product in recent_products %}
+                    <tr>
+                        <td>Registro</td>
+                        <td>{{ product.nombre }}</td>
+                        <!-- Mostrar estado con su clase de color correspondiente -->
+                        <td><span class="status {{ product.estado_clase }}">{{ product.estado }}</span></td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+    
+    <!-- LÍNEA DE TIEMPO DE VENCIMIENTOS -->
+    <div class="col-xl-5">
+        <section class="panel">
+            <div class="section-title">
+                <h2>Próximos vencimientos</h2>
+                <a href="/alertas">Ver alertas</a>
+            </div>
+            <div class="timeline">
+                {% if expiring_products %}
+                    <!-- Mostrar los 3 productos próximos a vencer -->
+                    {% for product in expiring_products %}
+                    <div><strong>{{ product.nombre }}</strong><span>{{ product.vence }}</span></div>
+                    {% endfor %}
+                {% else %}
+                    <!-- Mensaje si no hay vencimientos cercanos -->
+                    <div><strong>Sin vencimientos cercanos</strong><span>Inventario estable</span></div>
+                {% endif %}
+            </div>
+        </section>
+    </div>
+</div>
+{% endblock %}

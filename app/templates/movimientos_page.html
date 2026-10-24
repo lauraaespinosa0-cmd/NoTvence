@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="page-header d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+    <div>
+        <h1>Movimientos</h1>
+        <p>Historial de entradas, consumos y descartes del inventario.</p>
+    </div>
+
+    <a href="/movimientos/nuevo" class="btn btn-primary">
+        Registrar movimiento
+    </a>
+</div>
+
+<!-- PANEL DE FILTROS DE BÚSQUEDA -->
+<!-- setupMovementFilters() en app.js procesa estos filtros -->
+<section class="panel mb-4">
+    <div class="row g-3 align-items-end">
+        <!-- Campo de búsqueda de texto -->
+        <div class="col-md-7">
+            <label class="form-label">Buscar movimiento</label>
+            <input id="movementSearch" type="search" class="form-control" placeholder="Producto, tipo o fecha">
+        </div>
+
+        <!-- Filtro por tipo de movimiento -->
+        <div class="col-md-3">
+            <label class="form-label">Tipo</label>
+            <select id="movementTypeFilter" class="form-select">
+                <option value="">Todos</option>
+                <option value="entrada">Entrada</option>
+                <option value="consumo">Consumo</option>
+                <option value="descarte">Descarte</option>
+            </select>
+        </div>
+
+        <!-- Botón para limpiar todos los filtros -->
+        <div class="col-md-2">
+            <button id="clearMovementFilters" class="btn btn-outline-light w-100" type="button">Limpiar</button>
+        </div>
+    </div>
+</section>
+
+<section class="panel">
+
+    <div class="section-title">
+        <h2>Historial de movimientos</h2>
+        <span id="movementCount">{{ movements|length }} movimientos</span>
+    </div>
+
+    <div class="table-responsive">
+
+        <table class="table align-middle" id="movementsTable">
+
+            <thead>
+                <tr>
+                    <th>Producto</th>
+                    <th>Tipo</th>
+                    <th>Cantidad</th>
+                    <th>Fecha</th>
+                </tr>
+            </thead>
+
+            <tbody>
+
+                {% if movements %}
+
+                    {% for movement in movements %}
+
+                    <tr data-type="{{ movement[2]|lower }}">
+                        <td>{{ movement[1] }}</td>
+                        <td>{{ movement[2] }}</td>
+                        <td>{{ movement[3] }}</td>
+                        <td>{{ movement[4] }}</td>
+                    </tr>
+
+                    {% endfor %}
+
+                {% else %}
+
+                    <tr>
+                        <td colspan="4" class="text-center">
+                            No hay movimientos registrados.
+                        </td>
+                    </tr>
+
+                {% endif %}
+
+            </tbody>
+
+        </table>
+
+    </div>
+
+</section>
+
+{% endblock %}

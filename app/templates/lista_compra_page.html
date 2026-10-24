@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-header shopping-header">
+    <span class="shopping-title-mark" aria-hidden="true">🛒</span>
+    <div class="shopping-heading-copy">
+        <h1>Lista de compra</h1>
+        <p>Organiza lo que necesitas comprar sin modificar las cantidades del inventario.</p>
+    </div>
+    <span class="shopping-count">{{ shopping_products|length }} productos</span>
+</section>
+
+<section class="panel shopping-panel">
+    {% if shopping_groups %}
+    <div class="shopping-groups">
+        {% for group in shopping_groups %}
+        <div class="shopping-group">
+            <div class="shopping-group-header">
+                <span class="shopping-group-icon" aria-hidden="true">{{ group.icono }}</span>
+                <h2>{{ group.categoria }}</h2>
+                <span class="shopping-group-count">{{ group.productos|length }}</span>
+            </div>
+
+            <div class="shopping-group-list">
+                {% for item in group.productos %}
+                <article class="shopping-card {% if item.comprado %}is-bought{% endif %}">
+                    <form method="post" action="/lista-compra/{{ item.codigo }}/actualizar" class="shopping-toggle-form">
+                        <input type="hidden" name="cantidad_compra" value="{{ item.compra_cantidad }}">
+                        <input type="hidden" name="comprado" value="{{ 'false' if item.comprado else 'true' }}">
+                        <button type="submit" class="shopping-toggle-row" title="{% if item.comprado %}Marcar como pendiente{% else %}Marcar como comprado{% endif %}">
+                            <span class="shopping-icon" aria-hidden="true">{{ group.icono }}</span>
+                            <span class="shopping-text">
+                                <span class="shopping-name">{{ item.nombre }}</span>
+                                <span class="shopping-unit">
+                                    {{ item.compra_cantidad }} {{ item.presentacion or 'Unidad' }}
+                                    {% if item.subcategoria and item.subcategoria != 'Sin subcategoría' %}· {{ item.subcategoria }}{% endif %}
+                                </span>
+                            </span>
+                            <span class="shopping-checkbox {% if item.comprado %}is-checked{% endif %}" aria-hidden="true">{% if item.comprado %}✓{% endif %}</span>
+                        </button>
+                    </form>
+
+                    <form method="post" action="/lista-compra/{{ item.codigo }}/actualizar" class="shopping-qty-mini">
+                        <input type="hidden" name="comprado" value="{{ 'true' if item.comprado else 'false' }}">
+                        <input type="number" name="cantidad_compra" min="0" value="{{ item.compra_cantidad }}" aria-label="Cantidad a comprar de {{ item.nombre }}">
+                        <button type="submit" title="Guardar cantidad" aria-label="Guardar cantidad">↵</button>
+                    </form>
+
+                    <form method="post" action="/lista-compra/{{ item.codigo }}/eliminar">
+                        <button type="submit" class="shopping-delete-mini" title="Quitar de la lista" aria-label="Quitar {{ item.nombre }} de la lista">✕</button>
+                    </form>
+                </article>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <strong>No hay productos en la lista de compra.</strong>
+        <span>Registra productos o agrega uno nuevo para que aparezca aquí.</span>
+        <a class="btn btn-primary" href="/producto/nuevo">Registrar producto</a>
+    </div>
+    {% endif %}
+</section>
+
+<!-- BOTÓN FLOTANTE: abre el modal de artículo nuevo -->
+<button type="button" class="shopping-fab" data-bs-toggle="modal" data-bs-target="#newShoppingItemModal" aria-label="Agregar artículo nuevo">+</button>
+
+<!-- MODAL: crear artículo nuevo en la lista de compra -->
+<div class="modal fade" id="newShoppingItemModal" tabindex="-1" aria-labelledby="newShoppingItemModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content shopping-modal-content">
+            <form method="post" action="/lista-compra/agregar" id="shoppingItemForm">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="newShoppingItemModalLabel">Artículo nuevo</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label" for="nombre-compra">Nombre</label>
+                        <input id="nombre-compra" type="text" name="nombre_compra" class="form-control" placeholder="Ej. Cerezas" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="categoria-compra">Categoría</label>
+                        <select id="categoria-compra" name="categoria_compra" class="form-select">
+                            {% for categoria in categorias %}
+                            <option value="{{ categoria }}">{{ categoria }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="subcategoria-compra">Subcategoría</label>
+                        <!-- Se llena según la categoría con /api/categorias/{categoria}/subcategorias -->
+                        <select id="subcategoria-compra" name="subcategoria_compra" class="form-select">
+                            <option value="">Selecciona una subcategoría</option>
+                        </select>
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-6">
+                            <label class="form-label" for="cantidad-compra">Cantidad</label>
+                            <input id="cantidad-compra" type="number" name="cantidad_compra" class="form-control" min="1" value="1" required>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label" for="unidad-compra">Presentación</label>
+                            <!-- Se llena según la categoría con /api/categorias/{categoria}/presentaciones -->
+                            <select id="unidad-compra" name="unidad_compra" class="form-select">
+                                <option value="">Selecciona una presentación</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Agregar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

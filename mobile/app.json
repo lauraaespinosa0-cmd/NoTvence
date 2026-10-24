@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "NotVence",
+    "slug": "notvence",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "android": {
+      "package": "com.notvence.app",
+      "permissions": [
+        "NFC"
+      ]
+    },
+    "ios": {
+      "bundleIdentifier": "com.notvence.app"
+    },
+    "plugins": [
+      "expo-asset",
+      "@react-native-community/datetimepicker"
+    ]
+  }
+}
