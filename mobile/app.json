@@ -7,15 +7,46 @@
     "android": {
       "package": "com.notvence.app",
       "permissions": [
-        "NFC"
+        "NFC",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "ios": {
-      "bundleIdentifier": "com.notvence.app"
+      "bundleIdentifier": "com.notvence.app",
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "Permitir que NotVence convierta tu voz en texto para completar el formulario.",
+        "NSMicrophoneUsageDescription": "Permitir que NotVence use el micrófono para completar los productos por voz.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "plugins": [
       "expo-asset",
-      "@react-native-community/datetimepicker"
-    ]
+      "@react-native-community/datetimepicker",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Permitir que NotVence use la cámara para leer la fecha de vencimiento.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Permitir que NotVence use el micrófono para completar los productos por voz.",
+          "speechRecognitionPermission": "Permitir que NotVence convierta tu voz en texto para completar el formulario.",
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox"
+          ]
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "3e995d2b-5511-4565-abac-21c5451f9f4e"
+      }
+    },
+    "owner": "lunafulminante"
   }
 }

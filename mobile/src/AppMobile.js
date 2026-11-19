@@ -15,6 +15,16 @@ import {
   View,
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
+import { CameraView, useCameraPermissions } from "expo-camera";
+import {
+  extractTextFromImage,
+  isSupported as isNativeTextExtractorSupported,
+} from "expo-text-extractor";
+import {
+  ExpoSpeechRecognitionModule,
+  useSpeechRecognitionEvent,
+} from "expo-speech-recognition";
+import { useRef } from "react";
 import NfcManager, { Ndef, NfcTech } from "react-native-nfc-manager";
 
 import { listAlertas } from "./api/alertas";
@@ -103,6 +113,184 @@ function formatDate(date) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") resolve(reader.result);
+      else reject(new Error("No se pudo cargar la fotografía."));
+    };
+    reader.onerror = () => reject(reader.error || new Error("No se pudo cargar la fotografía."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function getVoiceField(text, labels) {
+  const escaped = labels.map((label) =>
+    label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  );
+
+  const nextLabels = [
+    "nombre",
+    "categoría",
+    "categoria",
+    "subcategoría",
+    "subcategoria",
+    "presentación",
+    "presentacion",
+    "cantidad",
+    "stock mínimo",
+    "stock minimo",
+    "ubicación",
+    "ubicacion",
+    "vencimiento",
+  ];
+
+  const next = nextLabels
+    .map((label) => label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+
+  const expression = new RegExp(
+    `(?:${escaped.join("|")})\\s*[:,-]?\\s*(.*?)(?=\\s*(?:${next})\\s*[:,-]?|$)`,
+    "i"
+  );
+
+  return text.match(expression)?.[1]?.trim() || "";
+}
+
+function extractExpiryDate(texts) {
+  const monthNumbers = {
+    ene: 1, enero: 1, jan: 1, january: 1,
+    feb: 2, febrero: 2, february: 2,
+    mar: 3, marzo: 3, march: 3,
+    abr: 4, abril: 4, apr: 4, april: 4,
+    may: 5, mayo: 5,
+    jun: 6, junio: 6, june: 6,
+    jul: 7, julio: 7, july: 7,
+    ago: 8, agosto: 8, aug: 8, august: 8,
+    sep: 9, sept: 9, septiembre: 9, setiembre: 9, september: 9,
+    oct: 10, octubre: 10, october: 10,
+    nov: 11, noviembre: 11, november: 11,
+    dic: 12, diciembre: 12, dec: 12, december: 12,
+  };
+  const monthPattern = Object.keys(monthNumbers)
+    .sort((a, b) => b.length - a.length)
+    .join("|");
+  const text = texts
+    .join(" ")
+    .normalize("NFKC")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\s*([-/\.])\s*/g, "$1")
+    .replace(
+      /\b(0?[1-9]|[12]\d|3[01])\s+0(?=[A-Z]{2,}\.?\s*\d{2,4}\b)/gi,
+      "$1 O"
+    );
+  const labelledNamedDate = text.match(
+    new RegExp(
+      `\\b(?:vence|vencimiento|caducidad|exp(?:iry|iration)?|best\\s+before|use\\s+by|consumir\\s+antes(?:\\s+de)?)\\b[\\s:,-]{0,12}(\\d{1,2})\\s+(${monthPattern})\\.?\\s*(\\d{2,4})\\b`,
+      "i"
+    )
+  );
+  
+if (labelledNamedDate) {
+    const day = Number(labelledNamedDate[1]);
+    const month = monthNumbers[labelledNamedDate[2].toLowerCase()];
+    let year = Number(labelledNamedDate[3]);
+    if (year < 100) year += 2000;
+    const date = new Date(year, month - 1, day);
+    if (
+      date.getFullYear() === year &&
+      date.getMonth() === month - 1 &&
+      date.getDate() === day
+    ) {
+      return formatDate(date);
+    }
+  }
+
+  const fullDatePattern =
+    /\b(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})\b/g;
+  const fullDates = [...text.matchAll(fullDatePattern)].map((match) => ({
+    value: match[0],
+    index: match.index,
+  }));
+  const withoutFullDates = text.replace(fullDatePattern, (match) => " ".repeat(match.length));
+  const monthYearPattern =
+  /\b(?:0?[1-9]|1[0-2])[-/.](?:\d{2}|(?:19|20)\d{2})\b|\b(?:19|20)\d{2}[-/.](?:0?[1-9]|1[0-2])\b/g;
+  const monthYearDates = [...withoutFullDates.matchAll(monthYearPattern)].map((match) => ({
+    value: match[0],
+    index: match.index,
+  }));
+  const namedDatePattern = new RegExp(
+    `\\b(\\d{1,2})\\s+(${monthPattern})\\.?\\s*(\\d{2,4})\\b|\\b(${monthPattern})\\.?\\s+(\\d{1,2}),?\\s+(\\d{2,4})\\b`,
+    "gi"
+  );
+  const namedDates = [...text.matchAll(namedDatePattern)].map((match) => {
+    const day = Number(match[1] || match[5]);
+    const monthName = (match[2] || match[4]).toLowerCase();
+    const year = Number(match[3] || match[6]);
+    return {
+      value: `${day}/${monthNumbers[monthName]}/${year}`,
+      index: match.index,
+    };
+  });
+  const candidates = [...fullDates, ...monthYearDates, ...namedDates].sort(
+    (a, b) => a.index - b.index
+  );
+  const expiryLabels = [
+    ...text.matchAll(
+      /\b(?:exp(?:iry|iration)?|vence|vencimiento|caducidad|best\s+before|use\s+by|consumir\s+antes(?:\s+de)?)\b/gi
+    ),
+  ];
+  const labelledDates = candidates.filter((candidate) => {
+    const previousDate = candidates.filter((item) => item.index < candidate.index).pop();
+    const previousLabel = expiryLabels.filter((item) => item.index < candidate.index).pop();
+    return (
+      previousLabel &&
+      (!previousDate || previousLabel.index > previousDate.index) &&
+      candidate.index - previousLabel.index <= 60
+    );
+  });
+  const dates = [
+    ...new Set((labelledDates.length ? labelledDates : candidates).map((item) => item.value)),
+  ];
+
+  if (dates.length !== 1) {
+    return null;
+  }
+
+  const parts = dates[0].split(/[-/.]/).map(Number);
+  let year;
+  let month;
+  let day;
+
+  if (parts.length === 2) {
+    if (parts[0] > 31) {
+      [year, month] = parts;
+    } else {
+      [month, year] = parts;
+    }
+    if (year < 100) year += 2000;
+    day = new Date(year, month, 0).getDate();
+  } else if (parts[0] > 31) {
+    [year, month, day] = parts;
+  } else {
+    [day, month, year] = parts;
+    if (year < 100) year += 2000;
+  }
+
+  const date = new Date(year, month - 1, day);
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return formatDate(date);
 }
 
 function parseDate(value) {
@@ -210,7 +398,6 @@ function ExpiryDateField({ value, onChangeText }) {
     </View>
   );
 }
-
 function ChoiceRow({ options, selected, onSelect, scrollable = true }) {
   const contents = options.map((option) => {
     const value = Array.isArray(option) ? option[0] : option;
@@ -609,6 +796,252 @@ function ProductFormScreen({ product, goBack }) {
   const [presentations, setPresentations] = useState([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const cameraRef = useRef(null);
+  const webCameraInputRef = useRef(null);
+const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+const [cameraOpen, setCameraOpen] = useState(false);
+const [cameraReady, setCameraReady] = useState(false);
+const [cameraBusy, setCameraBusy] = useState(false);
+const [cameraMessage, setCameraMessage] = useState("");
+const [voiceBusy, setVoiceBusy] = useState(false);
+const [voiceMessage, setVoiceMessage] = useState("");
+
+useSpeechRecognitionEvent("start", () => {
+  setVoiceBusy(true);
+  setVoiceMessage("Escuchando... habla con claridad.");
+});
+
+useSpeechRecognitionEvent("end", () => {
+  setVoiceBusy(false);
+});
+
+useSpeechRecognitionEvent("error", (event) => {
+  setVoiceBusy(false);
+  setVoiceMessage(event.message || "No se pudo reconocer la voz.");
+});
+
+useSpeechRecognitionEvent("result", (event) => {
+  if (!event.isFinal) return;
+
+  const transcript = event.results?.[0]?.transcript || "";
+
+  if (!transcript.trim()) {
+    setVoiceMessage("No se reconoció ningún dato. Intenta nuevamente.");
+    return;
+  }
+
+  applyVoiceData(transcript);
+});
+
+function applyVoiceData(transcript) {
+  const text = transcript;
+
+  const spokenName = getVoiceField(text, ["nombre"]);
+  const spokenCategory = getVoiceField(text, ["categoría", "categoria"]);
+  const spokenSubcategory = getVoiceField(text, ["subcategoría", "subcategoria"]);
+  const spokenPresentation = getVoiceField(text, ["presentación", "presentacion"]);
+  const spokenQuantity = getVoiceField(text, ["cantidad"]);
+  const spokenStock = getVoiceField(text, ["stock mínimo", "stock minimo"]);
+  const spokenLocation = getVoiceField(text, ["ubicación", "ubicacion"]);
+  const spokenExpiry = getVoiceField(text, ["vencimiento"]);
+
+  if (spokenName) setName(spokenName);
+
+  if (spokenCategory) {
+    const matchedCategory = CATEGORIAS.find(
+      (item) => item.toLowerCase() === spokenCategory.toLowerCase()
+    );
+
+    if (matchedCategory) {
+      setCategory(matchedCategory);
+      setSubcategory("");
+      setPresentation("");
+    }
+  }
+
+  if (spokenSubcategory) setSubcategory(spokenSubcategory);
+  if (spokenPresentation) setPresentation(spokenPresentation);
+
+  if (spokenQuantity) {
+    const number = spokenQuantity.match(/\d+/);
+    if (number) setQuantity(number[0]);
+  }
+
+  if (spokenStock) {
+    const number = spokenStock.match(/\d+/);
+    if (number) setStockThreshold(number[0]);
+  }
+
+  if (spokenLocation) setLocation(spokenLocation);
+
+  if (spokenExpiry) {
+    const date = extractExpiryDate([spokenExpiry]);
+    if (date) setExpiry(date);
+  }
+
+  setVoiceMessage("Datos reconocidos. Revisa el formulario antes de guardar.");
+}
+async function startVoice() {
+  try {
+    if (
+      Platform.OS === "web" &&
+      !ExpoSpeechRecognitionModule.isRecognitionAvailable()
+    ) {
+      setVoiceMessage(
+        "Este navegador no ofrece reconocimiento de voz. Prueba en Safari actualizado y permite el acceso al micrófono."
+      );
+      return;
+    }
+
+    if (Platform.OS === "web") {
+      setVoiceMessage("Escuchando... habla con claridad.");
+      ExpoSpeechRecognitionModule.start({
+        lang: "es-CO",
+        interimResults: false,
+        continuous: false,
+        maxAlternatives: 1,
+      });
+      return;
+    }
+
+    setVoiceMessage("Solicitando permiso para usar el micrófono...");
+
+    const permission = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+
+    if (!permission.granted) {
+      setVoiceMessage("Debes permitir el acceso al micrófono.");
+      return;
+    }
+
+    ExpoSpeechRecognitionModule.start({
+      lang: "es-CO",
+      interimResults: false,
+      continuous: false,
+      maxAlternatives: 1,
+    });
+  } catch (caught) {
+    setVoiceMessage(messageOf(caught));
+  }
+}
+  
+async function openExpiryCamera() {
+  setCameraMessage("");
+  setError("");
+
+  try {
+    const permission = await requestCameraPermission();
+
+    if (!permission.granted) {
+      setCameraMessage(
+        "Debes permitir el acceso a la cámara para leer la fecha."
+      );
+      return;
+    }
+
+    setCameraReady(false);
+    setCameraOpen(true);
+
+  } catch (caught) {
+    setCameraMessage(messageOf(caught));
+  }
+}
+
+
+async function processExpiryImage(uri) {
+  setCameraBusy(true);
+  setError("");
+  setCameraMessage("Leyendo la fotografía...");
+
+  try {
+    const recognizedTexts = await extractExpiryText(uri);
+      const date = extractExpiryDate(recognizedTexts);
+
+    if (!date) {
+      const ocrPreview = recognizedTexts
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 120);
+      const message = ocrPreview
+        ? `Texto detectado: ${ocrPreview}. No pude convertirlo en una fecha.`
+        : "El OCR no detectó texto en la foto. Acerca la etiqueta, mejora la iluminación e inténtalo otra vez.";
+      setCameraMessage(message);
+      setError(message);
+      return;
+    }
+
+    setExpiry(date);
+    setCameraMessage(`Fecha detectada: ${date}`);
+    setCameraOpen(false);
+  } catch (caught) {
+    const message = `No se pudo leer la foto. ${messageOf(caught)}`;
+    setCameraMessage(message);
+    setError(message);
+  } finally {
+    setCameraBusy(false);
+  }
+}
+
+async function handleWebExpiryPhoto(event) {
+  const input = event.currentTarget;
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) return;
+
+  try {
+    await processExpiryImage(await readFileAsDataUrl(file));
+  } catch (caught) {
+    const message = `No se pudo cargar la fotografía. ${messageOf(caught)}`;
+    setCameraMessage(message);
+    setError(message);
+  }
+}
+
+async function extractExpiryText(uri) {
+  if (isNativeTextExtractorSupported) {
+    return extractTextFromImage(uri);
+  }
+
+  const { createWorker } = await import("tesseract.js");
+  const worker = await createWorker("eng");
+  try {
+    const {
+      data: { text },
+    } = await worker.recognize(uri);
+    return [text];
+  } finally {
+    await worker.terminate();
+  }
+}
+
+
+async function captureExpiryDate() {
+  if (!cameraRef.current || !cameraReady || cameraBusy) {
+    return;
+  }
+
+  try {
+    const photo = await cameraRef.current.takePictureAsync({
+      quality: 1,
+      base64: Platform.OS === "web",
+    });
+
+    if (!photo?.uri) {
+      throw new Error("No se pudo tomar la fotografía.");
+    }
+
+    const imageUri =
+  Platform.OS === "web" && photo.base64
+    ? `data:image/jpeg;base64,${photo.base64}`
+    : photo.uri;
+
+    await processExpiryImage(imageUri);
+
+  } catch (caught) {
+    setCameraMessage(messageOf(caught));
+  }
+}
+
 
   useEffect(() => {
     let active = true;
@@ -680,6 +1113,74 @@ function ProductFormScreen({ product, goBack }) {
         <Text style={styles.dateHint}>Si la cantidad disponible es igual o menor, se mostrará la alerta de stock bajo.</Text>
         <Field label="Ubicación" value={location} onChangeText={setLocation} placeholder="Ej. Despensa" />
         <ExpiryDateField value={expiry} onChangeText={setExpiry} />
+        {Platform.OS === "web"
+          ? React.createElement("input", {
+              ref: webCameraInputRef,
+              type: "file",
+              accept: "image/*",
+              capture: "environment",
+              onChange: handleWebExpiryPhoto,
+              style: { display: "none" },
+            })
+          : null}
+        <AppButton
+          title={Platform.OS === "web" ? "📷 Tomar foto de vencimiento" : "📷 Leer fecha con cámara"}
+          variant="secondary"
+          onPress={openExpiryCamera}
+          disabled={cameraBusy}
+        />
+        {Platform.OS === "web" && cameraMessage ? (
+          <Text style={styles.mutedText}>{cameraMessage}</Text>
+        ) : null}
+
+<AppButton
+  title={voiceBusy ? "Escuchando..." : "🎤 Completar formulario por voz"}
+  variant="secondary"
+  onPress={voiceBusy ? () => ExpoSpeechRecognitionModule.stop() : startVoice}
+/>
+
+{voiceMessage ? (
+  <Text style={styles.mutedText}>{voiceMessage}</Text>
+) : null}
+<Modal
+  visible={Platform.OS !== "web" && cameraOpen}
+  animationType="slide"
+  onRequestClose={() => setCameraOpen(false)}
+>
+  <View style={{ flex: 1, backgroundColor: "#000" }}>
+    <Text style={{ color: "#fff", textAlign: "center", padding: 15 }}>
+      Enfoca la fecha de vencimiento y pulsa “Tomar fotografía”
+    </Text>
+
+    <CameraView
+      ref={cameraRef}
+      style={{ flex: 1 }}
+      facing="back"
+      onCameraReady={() => setCameraReady(true)}
+      onMountError={({ message }) => {
+        setCameraOpen(false);
+        setError(message || "No se pudo abrir la cámara.");
+      }}
+    />
+
+    <View style={{ padding: 20, gap: 10 }}>
+      {cameraMessage ? (
+        <Text style={styles.cameraMessage}>{cameraMessage}</Text>
+      ) : null}
+      <AppButton
+        title={cameraBusy ? "Leyendo fecha..." : "Tomar fotografía"}
+        onPress={captureExpiryDate}
+        disabled={!cameraReady || cameraBusy}
+      />
+
+      <AppButton
+        title="Cancelar"
+        variant="secondary"
+        onPress={() => setCameraOpen(false)}
+      />
+    </View>
+  </View>
+</Modal>
         <Notice text={error} />
         <AppButton title={busy ? "Guardando..." : editing ? "Guardar cambios" : "Crear producto"} disabled={busy} onPress={save} />
       </Panel>
@@ -1200,6 +1701,7 @@ const styles = StyleSheet.create({
   emptyState: { alignItems: "center", paddingVertical: 26 },
   emptyTitle: { color: colors.text, fontSize: 17, fontWeight: "700" },
   mutedText: { color: colors.muted, fontSize: 13, lineHeight: 19 },
+  cameraMessage: { color: "#fff", fontSize: 13, lineHeight: 18, textAlign: "center" },
   loading: { minHeight: 95, alignItems: "center", justifyContent: "center", gap: 8 },
   quickActions: { gap: 8 },
   detailRow: { minHeight: 44, flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 14, borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: 8 },
