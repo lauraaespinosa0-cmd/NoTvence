@@ -9,7 +9,11 @@ from datetime import datetime, timedelta, timezone
 import jwt
 from fastapi import Header, HTTPException, status
 
-SECRET_KEY = os.environ.get("NOTVENCE_JWT_SECRET", "notvence-dev-secret-change-in-production")
+SECRET_KEY = os.environ.get("NOTVENCE_JWT_SECRET")
+if not SECRET_KEY:
+    if os.environ.get("RENDER"):
+        raise RuntimeError("NOTVENCE_JWT_SECRET debe configurarse en Render.")
+    SECRET_KEY = "notvence-dev-secret-change-in-production"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 24 * 30  # 30 días: pensado para sesiones móviles de larga duración
 

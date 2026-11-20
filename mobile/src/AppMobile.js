@@ -15,16 +15,10 @@ import {
   View,
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import { CameraView, useCameraPermissions } from "expo-camera";
-import {
-  extractTextFromImage,
-  isSupported as isNativeTextExtractorSupported,
-} from "expo-text-extractor";
 import {
   ExpoSpeechRecognitionModule,
   useSpeechRecognitionEvent,
 } from "expo-speech-recognition";
-import { useRef } from "react";
 import NfcManager, { Ndef, NfcTech } from "react-native-nfc-manager";
 
 import { listAlertas } from "./api/alertas";
@@ -90,20 +84,48 @@ function Panel({ children, style }) {
 }
 
 function Field({ label, value, onChangeText, placeholder, secureTextEntry, keyboardType, multiline }) {
+  const [passwordVisible, setPasswordVisible] = useState(false);
+
   return (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
-      <TextInput
-        accessibilityLabel={label}
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder || label}
-        placeholderTextColor={colors.muted}
-        secureTextEntry={secureTextEntry}
-        keyboardType={keyboardType}
-        multiline={multiline}
-        style={[styles.input, multiline && styles.multilineInput]}
-      />
+      {secureTextEntry ? (
+        <View style={styles.passwordContainer}>
+          <TextInput
+            accessibilityLabel={label}
+            value={value}
+            onChangeText={onChangeText}
+            placeholder={placeholder || label}
+            placeholderTextColor={colors.muted}
+            secureTextEntry={!passwordVisible}
+            keyboardType={keyboardType}
+            multiline={multiline}
+            style={[styles.input, styles.passwordInput, multiline && styles.multilineInput]}
+          />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={passwordVisible ? "Ocultar contraseña" : "Mostrar contraseña"}
+            accessibilityHint="Alterna la visualización de la contraseña"
+            onPress={() => setPasswordVisible((visible) => !visible)}
+            style={styles.passwordToggle}
+          >
+            <Text style={styles.passwordToggleText}>
+              {passwordVisible ? "👁️‍🗨️" : "👁️"}
+            </Text>
+          </Pressable>
+        </View>
+      ) : (
+        <TextInput
+          accessibilityLabel={label}
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={placeholder || label}
+          placeholderTextColor={colors.muted}
+          keyboardType={keyboardType}
+          multiline={multiline}
+          style={[styles.input, multiline && styles.multilineInput]}
+        />
+      )}
     </View>
   );
 }
@@ -113,18 +135,6 @@ function formatDate(date) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
-}
-
-function readFileAsDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") resolve(reader.result);
-      else reject(new Error("No se pudo cargar la fotografía."));
-    };
-    reader.onerror = () => reject(reader.error || new Error("No se pudo cargar la fotografía."));
-    reader.readAsDataURL(file);
-  });
 }
 
 function getVoiceField(text, labels) {
@@ -143,9 +153,15 @@ function getVoiceField(text, labels) {
     "cantidad",
     "stock mínimo",
     "stock minimo",
+    "avisar cuando queden",
+    "avisar",
+    "cuando queden",
     "ubicación",
     "ubicacion",
     "vencimiento",
+    "fecha de vencimiento",
+    "caducidad",
+    "vence",
   ];
 
   const next = nextLabels
@@ -158,6 +174,28 @@ function getVoiceField(text, labels) {
   );
 
   return text.match(expression)?.[1]?.trim() || "";
+}
+
+function parseVoiceNumber(value) {
+  const numbers = {
+    cero: 0, uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5,
+    seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10,
+    once: 11, doce: 12, trece: 13, catorce: 14, quince: 15,
+    dieciseis: 16, dieciséis: 16, diecisiete: 17, dieciocho: 18,
+    diecinueve: 19, veinte: 20, veintiuno: 21, veintidos: 22,
+    veintidós: 22, veintitres: 23, veintitrés: 23,
+    veinticuatro: 24, veinticinco: 25, veintiseis: 26,
+    veintiséis: 26, veintisiete: 27, veintiocho: 28,
+    veintinueve: 29, treinta: 30, "treinta y uno": 31,
+  };
+  const normalized = value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+  const digits = normalized.match(/\d+/);
+  if (digits) return digits[0];
+  return numbers[normalized] !== undefined ? String(numbers[normalized]) : "";
 }
 
 function extractExpiryDate(texts) {
@@ -181,7 +219,23 @@ function extractExpiryDate(texts) {
   const text = texts
     .join(" ")
     .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\b(uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|trece|catorce|quince|dieciséis|dieciseis|diecisiete|dieciocho|diecinueve|veinte|veintiuno|veintidos|veintitrés|veintitres|veinticuatro|veinticinco|veintiséis|veintiseis|veintisiete|veintiocho|veintinueve|treinta|treinta y uno)\b/g, (word) => {
+      const spokenNumbers = {
+        uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6,
+        siete: 7, ocho: 8, nueve: 9, diez: 10, once: 11, doce: 12,
+        trece: 13, catorce: 14, quince: 15, "dieciséis": 16,
+        dieciseis: 16, diecisiete: 17, dieciocho: 18, diecinueve: 19,
+        veinte: 20, veintiuno: 21, veintidos: 22, "veintitrés": 23,
+        veintitres: 23, veinticuatro: 24, veinticinco: 25,
+        "veintiséis": 26, veintiseis: 26, veintisiete: 27,
+        veintiocho: 28, veintinueve: 29, treinta: 30,
+        "treinta y uno": 31,
+    };
+      return String(spokenNumbers[word] || word);
+    })
     .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\b(?:de|del)\b/g, " ")
     .replace(/\s*([-/\.])\s*/g, "$1")
     .replace(
       /\b(0?[1-9]|[12]\d|3[01])\s+0(?=[A-Z]{2,}\.?\s*\d{2,4}\b)/gi,
@@ -796,13 +850,6 @@ function ProductFormScreen({ product, goBack }) {
   const [presentations, setPresentations] = useState([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const cameraRef = useRef(null);
-  const webCameraInputRef = useRef(null);
-const [cameraPermission, requestCameraPermission] = useCameraPermissions();
-const [cameraOpen, setCameraOpen] = useState(false);
-const [cameraReady, setCameraReady] = useState(false);
-const [cameraBusy, setCameraBusy] = useState(false);
-const [cameraMessage, setCameraMessage] = useState("");
 const [voiceBusy, setVoiceBusy] = useState(false);
 const [voiceMessage, setVoiceMessage] = useState("");
 
@@ -841,9 +888,21 @@ function applyVoiceData(transcript) {
   const spokenSubcategory = getVoiceField(text, ["subcategoría", "subcategoria"]);
   const spokenPresentation = getVoiceField(text, ["presentación", "presentacion"]);
   const spokenQuantity = getVoiceField(text, ["cantidad"]);
-  const spokenStock = getVoiceField(text, ["stock mínimo", "stock minimo"]);
+  const spokenStock = getVoiceField(text, [
+    "stock mínimo",
+    "stock minimo",
+    "avisar cuando queden",
+    "aviso cuando queden",
+    "cuando queden",
+  ]);
   const spokenLocation = getVoiceField(text, ["ubicación", "ubicacion"]);
-  const spokenExpiry = getVoiceField(text, ["vencimiento"]);
+  const spokenExpiry = getVoiceField(text, [
+    "fecha de vencimiento",
+    "vencimiento",
+    "fecha vencimiento",
+    "caducidad",
+    "vence",
+  ]);
 
   if (spokenName) setName(spokenName);
 
@@ -859,17 +918,36 @@ function applyVoiceData(transcript) {
     }
   }
 
-  if (spokenSubcategory) setSubcategory(spokenSubcategory);
+  if (spokenSubcategory) {
+    const normalize = (value) =>
+      value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const spokenNormalized = normalize(spokenSubcategory);
+    const matchedSubcategory = subcategories.find((item) => {
+      const itemNormalized = normalize(item);
+      return (
+        itemNormalized === spokenNormalized ||
+        itemNormalized.includes(spokenNormalized) ||
+        spokenNormalized.includes(itemNormalized)
+      );
+    });
+    setSubcategory(matchedSubcategory || spokenSubcategory);
+  }
   if (spokenPresentation) setPresentation(spokenPresentation);
 
   if (spokenQuantity) {
-    const number = spokenQuantity.match(/\d+/);
-    if (number) setQuantity(number[0]);
+    const number = parseVoiceNumber(spokenQuantity);
+    if (number) setQuantity(number);
   }
 
   if (spokenStock) {
-    const number = spokenStock.match(/\d+/);
-    if (number) setStockThreshold(number[0]);
+    const number = parseVoiceNumber(spokenStock);
+    if (number) setStockThreshold(number);
   }
 
   if (spokenLocation) setLocation(spokenLocation);
@@ -924,125 +1002,6 @@ async function startVoice() {
   }
 }
   
-async function openExpiryCamera() {
-  setCameraMessage("");
-  setError("");
-
-  try {
-    const permission = await requestCameraPermission();
-
-    if (!permission.granted) {
-      setCameraMessage(
-        "Debes permitir el acceso a la cámara para leer la fecha."
-      );
-      return;
-    }
-
-    setCameraReady(false);
-    setCameraOpen(true);
-
-  } catch (caught) {
-    setCameraMessage(messageOf(caught));
-  }
-}
-
-
-async function processExpiryImage(uri) {
-  setCameraBusy(true);
-  setError("");
-  setCameraMessage("Leyendo la fotografía...");
-
-  try {
-    const recognizedTexts = await extractExpiryText(uri);
-      const date = extractExpiryDate(recognizedTexts);
-
-    if (!date) {
-      const ocrPreview = recognizedTexts
-        .join(" ")
-        .replace(/\s+/g, " ")
-        .trim()
-        .slice(0, 120);
-      const message = ocrPreview
-        ? `Texto detectado: ${ocrPreview}. No pude convertirlo en una fecha.`
-        : "El OCR no detectó texto en la foto. Acerca la etiqueta, mejora la iluminación e inténtalo otra vez.";
-      setCameraMessage(message);
-      setError(message);
-      return;
-    }
-
-    setExpiry(date);
-    setCameraMessage(`Fecha detectada: ${date}`);
-    setCameraOpen(false);
-  } catch (caught) {
-    const message = `No se pudo leer la foto. ${messageOf(caught)}`;
-    setCameraMessage(message);
-    setError(message);
-  } finally {
-    setCameraBusy(false);
-  }
-}
-
-async function handleWebExpiryPhoto(event) {
-  const input = event.currentTarget;
-  const file = input.files?.[0];
-  input.value = "";
-  if (!file) return;
-
-  try {
-    await processExpiryImage(await readFileAsDataUrl(file));
-  } catch (caught) {
-    const message = `No se pudo cargar la fotografía. ${messageOf(caught)}`;
-    setCameraMessage(message);
-    setError(message);
-  }
-}
-
-async function extractExpiryText(uri) {
-  if (isNativeTextExtractorSupported) {
-    return extractTextFromImage(uri);
-  }
-
-  const { createWorker } = await import("tesseract.js");
-  const worker = await createWorker("eng");
-  try {
-    const {
-      data: { text },
-    } = await worker.recognize(uri);
-    return [text];
-  } finally {
-    await worker.terminate();
-  }
-}
-
-
-async function captureExpiryDate() {
-  if (!cameraRef.current || !cameraReady || cameraBusy) {
-    return;
-  }
-
-  try {
-    const photo = await cameraRef.current.takePictureAsync({
-      quality: 1,
-      base64: Platform.OS === "web",
-    });
-
-    if (!photo?.uri) {
-      throw new Error("No se pudo tomar la fotografía.");
-    }
-
-    const imageUri =
-  Platform.OS === "web" && photo.base64
-    ? `data:image/jpeg;base64,${photo.base64}`
-    : photo.uri;
-
-    await processExpiryImage(imageUri);
-
-  } catch (caught) {
-    setCameraMessage(messageOf(caught));
-  }
-}
-
-
   useEffect(() => {
     let active = true;
     Promise.all([listSubcategorias(category), listPresentaciones(category)])
@@ -1113,26 +1072,6 @@ async function captureExpiryDate() {
         <Text style={styles.dateHint}>Si la cantidad disponible es igual o menor, se mostrará la alerta de stock bajo.</Text>
         <Field label="Ubicación" value={location} onChangeText={setLocation} placeholder="Ej. Despensa" />
         <ExpiryDateField value={expiry} onChangeText={setExpiry} />
-        {Platform.OS === "web"
-          ? React.createElement("input", {
-              ref: webCameraInputRef,
-              type: "file",
-              accept: "image/*",
-              capture: "environment",
-              onChange: handleWebExpiryPhoto,
-              style: { display: "none" },
-            })
-          : null}
-        <AppButton
-          title={Platform.OS === "web" ? "📷 Tomar foto de vencimiento" : "📷 Leer fecha con cámara"}
-          variant="secondary"
-          onPress={openExpiryCamera}
-          disabled={cameraBusy}
-        />
-        {Platform.OS === "web" && cameraMessage ? (
-          <Text style={styles.mutedText}>{cameraMessage}</Text>
-        ) : null}
-
 <AppButton
   title={voiceBusy ? "Escuchando..." : "🎤 Completar formulario por voz"}
   variant="secondary"
@@ -1142,45 +1081,6 @@ async function captureExpiryDate() {
 {voiceMessage ? (
   <Text style={styles.mutedText}>{voiceMessage}</Text>
 ) : null}
-<Modal
-  visible={Platform.OS !== "web" && cameraOpen}
-  animationType="slide"
-  onRequestClose={() => setCameraOpen(false)}
->
-  <View style={{ flex: 1, backgroundColor: "#000" }}>
-    <Text style={{ color: "#fff", textAlign: "center", padding: 15 }}>
-      Enfoca la fecha de vencimiento y pulsa “Tomar fotografía”
-    </Text>
-
-    <CameraView
-      ref={cameraRef}
-      style={{ flex: 1 }}
-      facing="back"
-      onCameraReady={() => setCameraReady(true)}
-      onMountError={({ message }) => {
-        setCameraOpen(false);
-        setError(message || "No se pudo abrir la cámara.");
-      }}
-    />
-
-    <View style={{ padding: 20, gap: 10 }}>
-      {cameraMessage ? (
-        <Text style={styles.cameraMessage}>{cameraMessage}</Text>
-      ) : null}
-      <AppButton
-        title={cameraBusy ? "Leyendo fecha..." : "Tomar fotografía"}
-        onPress={captureExpiryDate}
-        disabled={!cameraReady || cameraBusy}
-      />
-
-      <AppButton
-        title="Cancelar"
-        variant="secondary"
-        onPress={() => setCameraOpen(false)}
-      />
-    </View>
-  </View>
-</Modal>
         <Notice text={error} />
         <AppButton title={busy ? "Guardando..." : editing ? "Guardar cambios" : "Crear producto"} disabled={busy} onPress={save} />
       </Panel>
@@ -1651,6 +1551,10 @@ const styles = StyleSheet.create({
   field: { gap: 6, width: "100%" },
   fieldLabel: { color: colors.muted, fontSize: 13, fontWeight: "600" },
   input: { width: "100%", minHeight: 46, borderWidth: 1, borderColor: colors.border, borderRadius: 11, color: colors.text, backgroundColor: colors.bgDeep, paddingHorizontal: 13, paddingVertical: 10, fontSize: 15, outlineStyle: "none" },
+  passwordContainer: { width: "100%", position: "relative", justifyContent: "center" },
+  passwordInput: { paddingRight: 52 },
+  passwordToggle: { position: "absolute", right: 4, width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  passwordToggleText: { color: colors.accent, fontSize: 22, lineHeight: 24 },
   dateValue: { color: colors.text, fontSize: 15 },
   datePlaceholder: { color: colors.muted, fontSize: 15 },
   dateHint: { color: colors.muted, fontSize: 11 },
@@ -1701,7 +1605,6 @@ const styles = StyleSheet.create({
   emptyState: { alignItems: "center", paddingVertical: 26 },
   emptyTitle: { color: colors.text, fontSize: 17, fontWeight: "700" },
   mutedText: { color: colors.muted, fontSize: 13, lineHeight: 19 },
-  cameraMessage: { color: "#fff", fontSize: 13, lineHeight: 18, textAlign: "center" },
   loading: { minHeight: 95, alignItems: "center", justifyContent: "center", gap: 8 },
   quickActions: { gap: 8 },
   detailRow: { minHeight: 44, flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 14, borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: 8 },

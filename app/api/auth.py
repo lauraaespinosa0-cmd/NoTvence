@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from app.auth import create_access_token
 from app.database import get_connection
 from app.deps import get_current_user_casa
+from app.passwords import hash_password, verify_password_and_update
 
 router = APIRouter(prefix="/auth", tags=["Autenticación"])
 
@@ -97,7 +98,7 @@ def register(payload: RegisterPayload):
 
     cursor.execute(
         "INSERT INTO usuario (id_casa, nombre, correo, contrasena) VALUES (%s, %s, %s, %s)",
-        (id_casa, username, email, password),
+        (id_casa, username, email, hash_password(password)),
     )
     conexion.commit()
     cursor.close()
@@ -114,15 +115,37 @@ def login(payload: LoginPayload):
 
     conexion = get_connection()
     cursor = conexion.cursor()
-    cursor.execute("SELECT nombre, contrasena FROM usuario WHERE nombre = %s", (username,))
-    usuario = cursor.fetchone()
-    cursor.close()
-    conexion.close()
+    try:
+        cursor.execute(
+            "SELECT id_usuario, nombre, contrasena FROM usuario WHERE nombre = %s",
+            (username,),
+        )
+        usuario = cursor.fetchone()
 
-    if not usuario or usuario[1] != password:
-        raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos.")
+        if not usuario:
+            raise HTTPException(
+                status_code=401,
+                detail="Usuario o contraseña incorrectos.",
+            )
 
-    return AuthOut(access_token=create_access_token(usuario[0]), username=usuario[0])
+        valid, replacement_hash = verify_password_and_update(password, usuario[2])
+        if not valid:
+            raise HTTPException(
+                status_code=401,
+                detail="Usuario o contraseña incorrectos.",
+            )
+
+        if replacement_hash:
+            cursor.execute(
+                "UPDATE usuario SET contrasena = %s WHERE id_usuario = %s",
+                (replacement_hash, usuario[0]),
+            )
+            conexion.commit()
+    finally:
+        cursor.close()
+        conexion.close()
+
+    return AuthOut(access_token=create_access_token(usuario[1]), username=usuario[1])
 
 
 @router.post("/nfc-login", response_model=AuthOut)

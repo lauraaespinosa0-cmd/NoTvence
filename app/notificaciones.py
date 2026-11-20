@@ -2,6 +2,9 @@
 """Envío de notificaciones por correo para NoTvence."""
 
 import base64
+import json
+import logging
+import os
 from datetime import date
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -25,16 +28,22 @@ SCOPES = [
 def conectar_gmail():
     """Conecta con la cuenta de Gmail autorizada."""
     credenciales = None
+    token_json = os.getenv("NOTVENCE_GMAIL_TOKEN_JSON")
 
-    if not CREDENCIALES.exists():
-        raise FileNotFoundError(
-            f"No se encontró el archivo: {CREDENCIALES}"
+    if token_json:
+        credenciales = Credentials.from_authorized_user_info(
+            json.loads(token_json),
+            SCOPES,
         )
-
-    if TOKEN.exists() and TOKEN.stat().st_size > 0:
+    elif TOKEN.exists() and TOKEN.stat().st_size > 0:
         credenciales = Credentials.from_authorized_user_file(
             str(TOKEN),
             SCOPES,
+        )
+
+    if not token_json and not CREDENCIALES.exists():
+        raise FileNotFoundError(
+            f"No se encontró el archivo: {CREDENCIALES}"
         )
 
     if not credenciales or not credenciales.valid:
@@ -45,16 +54,21 @@ def conectar_gmail():
         ):
             credenciales.refresh(Request())
         else:
+            if os.getenv("RENDER"):
+                raise RuntimeError(
+                    "Configura NOTVENCE_GMAIL_TOKEN_JSON en Render para enviar correos."
+                )
             flujo = InstalledAppFlow.from_client_secrets_file(
                 str(CREDENCIALES),
                 SCOPES,
             )
             credenciales = flujo.run_local_server(port=0)
 
-        TOKEN.write_text(
-            credenciales.to_json(),
-            encoding="utf-8",
-        )
+        if not token_json:
+            TOKEN.write_text(
+                credenciales.to_json(),
+                encoding="utf-8",
+            )
 
     return build(
         "gmail",
@@ -132,6 +146,10 @@ def enviar_aviso(
     Tipos aceptados:
     STOCK_BAJO, TRES_DIAS, POR_VENCER y VENCIDO.
     """
+    if os.getenv("NOTVENCE_EMAIL_ENABLED", "true").lower() not in ("1", "true", "yes"):
+        logging.info("Envío de correos desactivado por configuración.")
+        return
+
     if not destinatario:
         raise ValueError(
             "El destinatario del correo es obligatorio."

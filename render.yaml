@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: notvence
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: NOTVENCE_DB_HOST
+        sync: false
+      - key: NOTVENCE_DB_PORT
+        sync: false
+      - key: NOTVENCE_DB_NAME
+        sync: false
+      - key: NOTVENCE_DB_USER
+        sync: false
+      - key: NOTVENCE_DB_PASSWORD
+        sync: false
+      - key: NOTVENCE_JWT_SECRET
+        generateValue: true
+      - key: NOTVENCE_COOKIE_SECURE
+        value: "true"
+      - key: NOTVENCE_EMAIL_ENABLED
+        value: "false"

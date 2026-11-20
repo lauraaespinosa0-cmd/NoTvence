@@ -13,6 +13,7 @@ from app import movimientos_repo
 from app.database import get_connection
 from app.api import router as api_router
 from app.deps import current_user
+from app.passwords import hash_password, verify_password_and_update
 from app.store import (
     CATEGORY_ICONS,
     CATEGORY_ORDER,
@@ -67,6 +68,11 @@ async def no_cache_paginas(request: Request, call_next):
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
     return response
+
+
+@app.get("/health", include_in_schema=False)
+def health():
+    return {"status": "ok"}
 
 
 # =====================
@@ -256,7 +262,7 @@ async def register_post(request: Request):
         INSERT INTO usuario (id_casa, nombre, correo, contrasena)
         VALUES (%s, %s, %s, %s)
         """,
-        (id_casa, username, email, password)
+        (id_casa, username, email, hash_password(password))
     )
 
     conexion.commit()
@@ -288,26 +294,40 @@ async def login_post(request: Request):
     conexion = products_repo.get_connection()
     cursor = conexion.cursor()
 
-    cursor.execute(
-        """
-        SELECT id_usuario, nombre, contrasena
-        FROM usuario
-        WHERE nombre = %s
-        """,
-        (username,)
-    )
-
-    usuario = cursor.fetchone()
-
-    cursor.close()
-    conexion.close()
-
-    # Verificar usuario y contraseña
-    if not usuario or usuario[2] != password:
-        return RedirectResponse(
-            url="/?error=Usuario o contraseña incorrectos.",
-            status_code=303
+    try:
+        cursor.execute(
+            """
+            SELECT id_usuario, nombre, contrasena
+            FROM usuario
+            WHERE nombre = %s
+            """,
+            (username,)
         )
+
+        usuario = cursor.fetchone()
+
+        if not usuario:
+            return RedirectResponse(
+                url="/?error=Usuario o contraseña incorrectos.",
+                status_code=303
+            )
+
+        valid, replacement_hash = verify_password_and_update(password, usuario[2])
+        if not valid:
+            return RedirectResponse(
+                url="/?error=Usuario o contraseña incorrectos.",
+                status_code=303
+            )
+
+        if replacement_hash:
+            cursor.execute(
+                "UPDATE usuario SET contrasena = %s WHERE id_usuario = %s",
+                (replacement_hash, usuario[0])
+            )
+            conexion.commit()
+    finally:
+        cursor.close()
+        conexion.close()
 
     # Crear sesión
     response = RedirectResponse(
@@ -319,7 +339,8 @@ async def login_post(request: Request):
         "notvence_user",
         username,
         httponly=True,
-        samesite="lax"
+        samesite="lax",
+        secure=os.getenv("NOTVENCE_COOKIE_SECURE", "false").lower() == "true",
     )
 
     return response

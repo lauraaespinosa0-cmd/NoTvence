@@ -16,18 +16,15 @@
     "@types/react": "~18.3.12",
     "expo": "~52.0.0",
     "expo-asset": "~11.0.5",
-    "expo-camera": "~16.0.18",
     "expo-constants": "~17.0.8",
     "expo-dev-client": "~5.0.20",
     "expo-secure-store": "~14.0.0",
     "expo-speech-recognition": "^1.1.1",
-    "expo-text-extractor": "^2.0.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "react-native": "0.76.9",
     "react-native-nfc-manager": "^3.16.1",
     "react-native-web": "~0.19.13",
-    "tesseract.js": "^7.0.0",
     "typescript": "^5.3.3"
   }
 }
