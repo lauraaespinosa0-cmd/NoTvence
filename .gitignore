@@ -5,3 +5,6 @@ __pycache__/
 app/credentials.json
 app/token.json
 token.json
+
+credentials.json
+*.pem
